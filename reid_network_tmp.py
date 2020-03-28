@@ -13,10 +13,15 @@ class Base_Encoder(nn.Module):                                              #tor
         super(Base_Encoder, self).__init__()
         if backbone == 'resnet-50':                                         # Encoder with resnet50 architecture
             self.model = models.resnet50(pretrained=True)
-            self.model = nn.Sequential(*list(self.model.children())[:-3])
-
-    def forward(self, input_img):                                           # forward function to pass input image through the model created by constructor
-        return self.model(input_img)
+            self.model = nn.Sequential(*list(self.model.children())[:-2])
+        self.avgpool = nn.AvgPool2d((7,7))                                  # initialise avgpool
+    
+    def forward(self, input_feature, use_avg=False):
+        feature = self.model(input_feature)                                 #pass input features to model to obtain feature vector
+        if use_avg:
+            feature = self.avgpool(feature)                                 # average pool this feature
+            feature = feature.view(feature.size()[0],-1)
+        return feature
 
 class Encoder(nn.Module):                                                   #Encoder setup for the 3 domain variant/ invariant modules
     def __init__(self, backbone='resnet-50'):
@@ -178,12 +183,11 @@ class AdaptReID_model(nn.Module):
         super(AdaptReID_model, self).__init__()
 
         self.encoder_base = Base_Encoder(backbone=backbone)
-        self.encoder_base1 = Encoder(backbone=backbone)
+        
         self.encoder_t = Base_Encoder(backbone=backbone)
-        self.encoder_t1 = Encoder(backbone=backbone)
 
         
-        self.ch_list = [ 4096, 2048 , 512, 256, 64, 3]
+        self.ch_list = [ 2048 ,1024,  512, 256, 64, 3]
         self.decoder = Base_Decoder(ch_list=self.ch_list)
         self.decoder1 = Base_Decoder(ch_list=self.ch_list)
     
@@ -196,49 +200,48 @@ class AdaptReID_model(nn.Module):
                 flag 0 when testing just 1 branch of the model
                 """
             feature = self.encoder_base(source_img)
-            feature_1 = self.encoder_base1(feature)
-            feature_avg = self.encoder_base1(feature,use_avg=True)
+            feature_avg = self.encoder_base(source_img,use_avg=True)
             #recon_img = self.decoder(feature_1)
             
-            featuret = self.encoder_t(target_img)
-            feature_t1 = self.encoder_t1(featuret)
-            feature_t_avg = self.encoder_t1(featuret,use_avg=True)
+            pred_s = self.classifier(feature_avg)
             
-            feature_concat = feature_t1 + feature_1
-            feature_concat1 = torch.cat((feature_t1,feature_1),1)
+            feature1 = self.encoder_base(target_img)
+            feature_avg_1 = self.encoder_base(target_img,use_avg=True)
+            
+            feature2 = self.encoder_base(negative_img)
+            feature_avg_2 = self.encoder_base(negative_img,use_avg=True)
+            
 
+            recon_img1 = self.decoder1(feature)
             
-            recon_img1 = self.decoder1(feature_concat1)
-            
-            return recon_img1, feature_avg,feature_t_avg
+            return recon_img1, feature_avg, feature_avg_1, feature_avg_2,pred_s
         elif flag == 1:
             """
                 flag=1 for the entire model
                 """
             feature = self.encoder_base(source_img)
-            feature_1 = self.encoder_base1(feature)
-            feature_avg = self.encoder_base1(feature,use_avg=True)
+            feature_avg = self.encoder_base(source_img,use_avg=True)
+            #recon_img = self.decoder(feature_1)
             
             pred_s = self.classifier(feature_avg)
-
+            
             feature1 = self.encoder_base(target_img)
-            feature_2 = self.encoder_base1(feature1)
-            feature_avg_1 = self.encoder_base1(feature1,use_avg=True)
+            feature_avg_1 = self.encoder_base(target_img,use_avg=True)
             
             feature2 = self.encoder_base(negative_img)
-            feature_3 = self.encoder_base1(feature2)
-            feature_avg_2 = self.encoder_base1(feature2,use_avg=True)
+            feature_avg_2 = self.encoder_base(negative_img,use_avg=True)
             
             """to pass jittered images uncomment and replace target_img by jitter_img.cuda()"""
-            jitter_img = jitter(tb_visualize(target_img))
-            jitter_img = norm(jitter_img)
+            #jitter_img = jitter(tb_visualize(target_img))
+            #jitter_img = norm(jitter_img)
             
-            featuret = self.encoder_t(jitter_img.cuda())
-            feature_t1 = self.encoder_t1(featuret)
-            feature_t_avg = self.encoder_t1(featuret,use_avg=True)
+            featuret1 = self.encoder_t(target_img)
+            feature_t_avg = self.encoder_t(target_img,use_avg=True)
+            
+            
 
             
-            feature_concat1 = torch.cat((feature_t1,feature_1),1)
+            feature_concat1 = torch.cat((featuret1,feature),1)
 
 
             recon_img1 = self.decoder1(feature_concat1)

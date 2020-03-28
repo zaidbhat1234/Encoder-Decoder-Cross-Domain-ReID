@@ -14,8 +14,7 @@ def extract_feature(model, dataloader):
     for batch in dataloader:
         image, label, camera_id,_ = split_datapack(batch)
     
-        feature = model.encoder_base(image)
-        feature = model.encoder_base1(feature, use_avg=True)
+        feature = model.encoder_base(image, use_avg=True)
         feature = feature.view(feature.size()[0], -1).data.cpu().numpy()
         for i in range(feature.shape[0]):
             features.append(feature[i])

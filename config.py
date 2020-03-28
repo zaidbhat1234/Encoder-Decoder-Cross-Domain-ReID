@@ -1,15 +1,19 @@
 import os
 
-IMAGE_HEIGHT = 256
-IMAGE_WIDTH = 128
 
-# MEAN = [0.485, 0.456, 0.406] # ImageNet Pre-trained Mean
-# STD = [0.229, 0.224, 0.225] # ImageNet Pre-trained STDDEV
+"""
+    Normalisation and dimensional parameters as mentioned on the pytorch website to be used for the model ResNet
+    """
+IMAGE_HEIGHT = 224
+IMAGE_WIDTH = 224
 
-MEAN = [0.5, 0.5, 0.5]
-STD = [0.5, 0.5, 0.5]
+MEAN = [0.485, 0.456, 0.406] # ImageNet Pre-trained Mean
+STD = [0.229, 0.224, 0.225] # ImageNet Pre-trained STDDEV
 
-MODE = 'all'
+#MEAN = [0.5, 0.5, 0.5]
+#STD = [0.5, 0.5, 0.5]
+
+MODE = 'train'
 
 if MODE == 'train':
     # Train class number
@@ -25,12 +29,12 @@ elif MODE == 'all':
     MSMT_CLASS_NUM = 4101
     CUHK_CLASS_NUM = 1467
 
-CURRENT_DIR = '/media/zaid/dataset'
+CURRENT_DIR = '/media/zaid/dataset/dataset'
 
-DATASET_DIR = '/media/zaid/dataset'
-DATASET_DIR_CUHK = '/media/zaid/dataset/CUHK03/cuhk03_release/images/detected'
+DATASET_DIR = '/media/zaid/dataset/dataset'
+DATASET_DIR_CUHK = '/media/zaid/dataset/dataset/CUHK03/detected'
 
-GLOBAL_MARGIN = 0.5
+GLOBAL_MARGIN = 0.5 #For triplet loss
 
 
 def get_dataset_path(dataset_name):
@@ -56,3 +60,4 @@ def get_dataoutput(source_dataset):
     elif source_dataset == 'CUHK':
         classifier_output_dim = CUHK_CLASS_NUM
     return classifier_output_dim
+

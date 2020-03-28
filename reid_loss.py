@@ -6,15 +6,17 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 from scipy.spatial.distance import cdist
 import config
-from mmd import mix_rbf_mmd2
 from reid_dataset import split_datapack
 
 
 class ReconstructionLoss(nn.Module):
+    """
+        Recon loss as used by the ARN Paper
+        """
     def __init__(self, dist_metric='L1'):
         super(ReconstructionLoss, self).__init__()
         self.dist_metric = dist_metric
-
+    
     def forward(self, re_img, gt_img):
         p = 2
         if self.dist_metric == 'L1':
@@ -24,7 +26,11 @@ class ReconstructionLoss(nn.Module):
         return loss
 
 
+
 class MMDLoss(nn.Module):
+    """
+        As used by ARN Paper
+        """
     def __init__(self, base=1.0, sigma_list=[1, 2, 10]):
         super(MMDLoss, self).__init__()
         # sigma for MMD
@@ -32,7 +38,7 @@ class MMDLoss(nn.Module):
         self.base = base
         self.sigma_list = sigma_list
         self.sigma_list = [sigma / self.base for sigma in self.sigma_list]
-
+    
     def forward(self, Target, Source):
         Target = Target.view(Target.size()[0], -1)
         Source = Source.view(Source.size()[0], -1)
@@ -46,7 +52,7 @@ class ContrastiveLoss(nn.Module):
     def __init__(self, margin=2):
         super(ContrastiveLoss, self).__init__()
         self.margin = margin
-
+    
     def forward(self, predict, gt):
         predict = predict.view(predict.size()[0], -1)
         batch, dim = predict.size()
@@ -101,41 +107,55 @@ def loss_triplet(global_feature, local_feature, label, normalize=True):
                                                  global_feature,
                                                  label.cuda(args.gpu),
                                                  normalize_feature=normalize)
-
+        
     criterion = TripletLoss(margin=config.LOCAL_MARGIN)
-
+                                                 
     return global_loss
 
 
+def masked_l2_loss(prediction, label, mask):
+    """
+        masked reconstruction loss to be used when using saliency maps
+        """
+    loss = torch.sum(torch.mul((prediction-label),(prediction-label)))/(torch.sum(mask))
+    return loss
+
 def loss_triplet1(anc, pos, neg):
+    """
+        Triplet loss
+        """
     criterion = TripletLoss1(margin=config.GLOBAL_MARGIN).cuda()
     loss = criterion(anc,pos,neg)
     return loss
 
 """
-New added losses
-"""
+    New added losses
+    """
+
+
+
+
 
 
 def normalize(x, axis=-1):
     """Normalizing to unit length along the specified dimension.
-    Args:
+        Args:
         x: pytorch Variable
-    Returns:
+        Returns:
         x: pytorch Variable, same shape as input
-    """
+        """
     x = 1. * x / (torch.norm(x, 2, axis, keepdim=True).expand_as(x) + 1e-12)
     return x
 
 
 def euclidean_dist(x, y):
     """
-    Args:
+        Args:
         x: pytorch Variable, with shape [m, d]
         y: pytorch Variable, with shape [n, d]
-    Returns:
+        Returns:
         dist: pytorch Variable, with shape [m, n]
-    """
+        """
     m, n = x.size(0), y.size(0)
     xx = torch.pow(x, 2).sum(1, keepdim=True).expand(m, n)
     yy = torch.pow(y, 2).sum(1, keepdim=True).expand(n, m).t()
@@ -147,20 +167,20 @@ def euclidean_dist(x, y):
 
 def batch_euclidean_dist(x, y):
     """
-    Args:
+        Args:
         x: pytorch Variable, with shape [N, m, d]
         y: pytorch Variable, with shape [N, n, d]
-    Returns:
+        Returns:
         dist: pytorch Variable, with shape [N, m, n]
-    """
+        """
     assert len(x.size()) == 3
     assert len(y.size()) == 3
     assert x.size(0) == y.size(0)
     assert x.size(-1) == y.size(-1)
-
+    
     N, m, d = x.size()
     N, n, d = y.size()
-
+    
     # shape [N, m, n]
     xx = torch.pow(x, 2).sum(-1, keepdim=True).expand(N, m, n)
     yy = torch.pow(y, 2).sum(-1, keepdim=True).expand(N, n, m).permute(0, 2, 1)
@@ -171,71 +191,71 @@ def batch_euclidean_dist(x, y):
 
 def hard_example_mining(dist_mat, labels, return_inds=False):
     """For each anchor, find the hardest positive and negative sample.
-    Args:
+        Args:
         dist_mat: pytorch Variable, pair wise distance between samples, shape [N, N]
         labels: pytorch LongTensor, with shape [N]
         return_inds: whether to return the indices. Save time if `False`(?)
-    Returns:
+        Returns:
         dist_ap: pytorch Variable, distance(anchor, positive); shape [N]
         dist_an: pytorch Variable, distance(anchor, negative); shape [N]
         p_inds: pytorch LongTensor, with shape [N];
-            indices of selected hard positive samples; 0 <= p_inds[i] <= N - 1
+        indices of selected hard positive samples; 0 <= p_inds[i] <= N - 1
         n_inds: pytorch LongTensor, with shape [N];
-            indices of selected hard negative samples; 0 <= n_inds[i] <= N - 1
-    NOTE: Only consider the case in which all labels have same num of samples,
+        indices of selected hard negative samples; 0 <= n_inds[i] <= N - 1
+        NOTE: Only consider the case in which all labels have same num of samples,
         thus we can cope with all anchors in parallel.
-    """
-
+        """
+    
     assert len(dist_mat.size()) == 2
     assert dist_mat.size(0) == dist_mat.size(1)
     N = dist_mat.size(0)
-
+    
     # shape [N, N]
     is_pos = labels.expand(N, N).eq(labels.expand(N, N).t())
     is_neg = labels.expand(N, N).ne(labels.expand(N, N).t())
-
+    
     # `dist_ap` means distance(anchor, positive)
     # both `dist_ap` and `relative_p_inds` with shape [N, 1]
-
+    
     # `dist_an` means distance(anchor, negative)
     # both `dist_an` and `relative_n_inds` with shape [N, 1]
     dist_an, relative_n_inds = torch.min(dist_mat[is_neg].contiguous().view(N, -1), 1, keepdim=True)
-
+    
     dist_ap, relative_p_inds = torch.max(dist_mat[is_pos].contiguous().view(N, -1), 1, keepdim=True)
-
+    
     dist_ap = dist_ap.squeeze(1)
     dist_an = dist_an.squeeze(1)
-
+    
     if return_inds:
         # shape [N, N]
         ind = (labels.new().resize_as_(labels).copy_(torch.arange(0, N).long()).unsqueeze(0).expand(N, N))
-
+        
         # shape [N, 1]
         p_inds = torch.gather(ind[is_pos].contiguous().view(N, -1), 1, relative_p_inds.data)
         n_inds = torch.gather(ind[is_neg].contiguous().view(N, -1), 1, relative_n_inds.data)
-
+        
         # shape [N]
         p_inds = p_inds.squeeze(1)
         n_inds = n_inds.squeeze(1)
         return dist_ap, dist_an, p_inds, n_inds
-
+    
     return dist_ap, dist_an
 
 
 def GlobalLoss(tri_loss, global_feat, labels, normalize_feature=True):
     """
-    Args:
+        Args:
         tri_loss: a `TripletLoss` object
         global_feat: pytorch Variable, shape [N, C]
         labels: pytorch LongTensor, with shape [N]
         normalize_feature: whether to normalize feature to unit length along the
-            Channel dimension
-    Returns:
+        Channel dimension
+        Returns:
         loss: pytorch Variable, with shape [1]
         p_inds: pytorch LongTensor, with shape [N];
-            indices of selected hard positive samples; 0 <= p_inds[i] <= N - 1
+        indices of selected hard positive samples; 0 <= p_inds[i] <= N - 1
         n_inds: pytorch LongTensor, with shape [N];
-            indices of selected hard negative samples; 0 <= n_inds[i] <= N - 1
+        indices of selected hard negative samples; 0 <= n_inds[i] <= N - 1
         =============
         For Debugging
         =============
@@ -245,13 +265,13 @@ def GlobalLoss(tri_loss, global_feat, labels, normalize_feature=True):
         For Mutual Learning
         ===================
         dist_mat: pytorch Variable, pairwise euclidean distance; shape [N, N]
-    """
+        """
     if normalize_feature:
         global_feat = normalize(global_feat, axis=-1)
     # shape [N, N]
     dist_mat = euclidean_dist(global_feat, global_feat)
     dist_ap, dist_an, p_inds, n_inds = hard_example_mining(
-        dist_mat, labels, return_inds=True)
+                                                           dist_mat, labels, return_inds=True)
     loss = tri_loss(dist_ap, dist_an)
     # return loss, p_inds, n_inds, dist_ap, dist_an, dist_mat
     return loss, p_inds, n_inds
@@ -262,8 +282,8 @@ class TripletLoss(object):
         Modified from Tong Xiao's open-reid (https://github.com/Cysu/open-reid).
         Related Triplet Loss theory can be found in paper 'In Defense of the Triplet
         Loss for Person Re-Identification'.
-    """
-
+        """
+    
     def __init__(self, margin=None):
         self.margin = margin
         if margin is not None:
@@ -272,15 +292,8 @@ class TripletLoss(object):
             self.ranking_loss = nn.SoftMarginLoss()
 
     def __call__(self, dist_ap, dist_an):
-        """
-            Args:
-                dist_ap: pytorch Variable, distance between anchor and positive sample,
-                    shape [N]
-                dist_an: pytorch Variable, distance between anchor and negative sample,
-                    shape [N]
-            Returns:
-                loss: pytorch Variable, with shape [1]
-        """
+    
+
         y = Variable(dist_an.data.new().resize_as_(dist_an.data).fill_(1))
         if self.margin is not None:
             loss = self.ranking_loss(dist_an, dist_ap, y)
